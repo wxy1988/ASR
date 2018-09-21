@@ -113,12 +113,13 @@ if __name__ == '__main__':
     import os
 
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-    os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3,5,6,7,8"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
 
     parser = ArgumentParser()
     parser.add_argument('-c', '--config', dest='config')
     args = parser.parse_args()
-    args.config = './config_template_char_unit512_block6_left3_big_dim80_sp.yaml'
+    #args.config = './config_template_char_unit512_block6_left3_big_dim80_sp.yaml'
+    print(args.config)
     config = AttrDict(yaml.load(open(args.config)))
     # Logger
     if not os.path.exists(config.model_dir):
@@ -128,12 +129,12 @@ if __name__ == '__main__':
     shutil.copy(args.config, config.model_dir)
     import datetime
     time_stamp = datetime.datetime.now()
-    print "start_time:" + time_stamp.strftime('%Y.%m.%d-%H:%M:%S')
+    print("start_time:" + time_stamp.strftime('%Y.%m.%d-%H:%M:%S'))
     try:
         # Train
         train(config)
-    except Exception, e:
+    except Exception as e:
         import traceback
         logging.error(traceback.format_exc())
     time_stamp = datetime.datetime.now()
-    print "end_time:" + time_stamp.strftime('%Y.%m.%d-%H:%M:%S')
+    print("end_time:" + time_stamp.strftime('%Y.%m.%d-%H:%M:%S'))

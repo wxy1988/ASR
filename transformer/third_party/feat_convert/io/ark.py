@@ -18,6 +18,7 @@
 # limitations under the License.
 
 import numpy as np
+from builtins import bytes, chr
 
 np.set_printoptions(threshold=np.nan)
 np.set_printoptions(linewidth=np.nan)
@@ -47,9 +48,11 @@ class ArkReader(object):
     def readtoken(self, ark_read):
         tok = ""
         ch, = ark_read.read(1)
+        ch = chr(ch)
         while ch != ' ':
             tok = tok + ch
             ch, = ark_read.read(1)
+            ch = chr(ch)
         return tok
 
     ## read data from the archive
@@ -62,7 +65,7 @@ class ArkReader(object):
                 ark_read_buffer.read(1)
                 header = self.readtoken(ark_read_buffer)
                 if header[0] != "B":
-                    print "Input .ark file is not binary " + self.scp_data[index][0];
+                    print("Input .ark file is not binary " + self.scp_data[index][0])
                     exit(1)
                 if header == "BFM":
                     m, rows = struct.unpack('<bi', ark_read_buffer.read(5))
@@ -81,14 +84,14 @@ class ArkReader(object):
                     utt_mat = np.zeros([g_num_rows, g_num_cols], dtype=np.float32)
                     #uint16 percentile_0; uint16 percentile_25; uint16 percentile_75; uint16 percentile_100;
                     per_col_header = []
-                    for i in xrange(g_num_cols):
+                    for i in range(g_num_cols):
                         per_col_header.append(struct.unpack('HHHH', ark_read_buffer.read(8)))
                         #print per_col_header[i]
 
                     tmp_mat = np.frombuffer(ark_read_buffer.read(g_num_rows * g_num_cols), dtype=np.uint8)
 
                     pos = 0
-                    for i in xrange(g_num_cols):
+                    for i in range(g_num_cols):
                         p0 = float(g_min_value + g_range * per_col_header[i][0] / 65535.0)
                         p25 = float(g_min_value + g_range * per_col_header[i][1] / 65535.0)
                         p75 = float(g_min_value + g_range * per_col_header[i][2] / 65535.0)
@@ -97,7 +100,7 @@ class ArkReader(object):
                         d1 = float((p25 - p0) / 64.0)
                         d2 = float((p75 - p25) / 128.0)
                         d3 = float((p100 - p75) / 63.0)
-                        for j in xrange(g_num_rows):
+                        for j in range(g_num_rows):
                             c = tmp_mat[pos]
                             if c <= 64:
                                 utt_mat[j][i] = p0 + d1 * c
@@ -124,11 +127,11 @@ class ArkReader(object):
                     utt_mat = np.frombuffer(ark_read_buffer.read(size * 8), dtype=np.float64)
                     utt_mat = np.asarray(utt_mat, dtype=np.float32)
                 else:
-                    print "Invalid .ark file Format " + self.scp_data[index][0] ;
+                    print("Invalid .ark file Format " + self.scp_data[index][0])
                     exit(1)
                 return utt_mat
-        except Exception, e:
-            print Exception, ":", e
+        except Exception as e:
+            print(Exception, ":", e)
             raise e
             #traceback.print_exc()
             #print 'Open Fea File Failed ', self.scp_data[index][0]
@@ -151,7 +154,7 @@ class ArkReader(object):
         if (id > -1):
             return self.read_utt_data(id)
         else:
-            print "No Such index " + str(index)
+            print("No Such index " + str(index))
             return None
 
     ## read the next utterance in the scp file

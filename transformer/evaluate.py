@@ -1,7 +1,7 @@
 from __future__ import print_function
 
 import codecs
-import commands
+#import commands
 import os
 import time
 from argparse import ArgumentParser

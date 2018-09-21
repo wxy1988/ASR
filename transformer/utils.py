@@ -538,9 +538,10 @@ def dense(inputs,
           reuse_kernel=None,
           reuse=None,
           name=None):
-    argcount = activation.func_code.co_argcount
-    if activation.func_defaults:
-        argcount -= len(activation.func_defaults)
+    #argcount = activation.func_code.co_argcount
+    argcount = activation.__code__.co_argcount
+    if activation.__defaults__:
+        argcount -= len(activation.__defaults__)
     assert argcount in (1, 2)
     with tf.variable_scope(name, "dense", reuse=reuse):
         if argcount == 1:
