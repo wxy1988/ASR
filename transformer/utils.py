@@ -12,6 +12,7 @@ import tensorflow.contrib.framework as tff
 import third_party.feat_convert.io.ark as zark
 from third_party.tensor2tensor import common_layers, common_attention
 import re
+import time
 
 PAD_INDEX = 0
 UNK_INDEX = 1
@@ -123,8 +124,16 @@ class DataReader(object):
         random_caches = []
         count = 0
         scp_reader = zark.ArkReader(src_shuf_path)
+
+        read_utt_time = 0.0
+        select_bucket_time = 0.0
+        cache_append_time = 0.0
+        random_append_time = 0.0
+
         while True:
+            tmp_time = time.time()
             uttid, input, looped = scp_reader.read_next_utt()
+            read_utt_time += time.time() - tmp_time
             if looped:
                 break
 
@@ -144,19 +153,34 @@ class DataReader(object):
             if target_len == 0:
                 continue
 
+            tmp_time = time.time()
             bucket = select_bucket(input_len, target_len)
+            select_bucket_time += time.time() - tmp_time
+
+            tmp_time = time.time()
             caches[bucket][0].append(input)
             caches[bucket][1].append(target)
             caches[bucket][2] += input_len
             caches[bucket][3] += target_len
+            cache_append_time += time.time() - tmp_time
 
+            tmp_time = time.time()
             if len(random_caches) < num_random_caches and num_cache_min_length <= input_len <= num_cache_max_length \
                     and target_len >= num_cache_target_min_length:
                 random_caches.append([input, target])
-
+            random_append_time += time.time() - tmp_time
             if max(caches[bucket][2], caches[bucket][3]) > self._config.train.tokens_per_batch:
+                tmp_time = time.time()
                 feat_batch, feat_batch_mask = self._create_feat_batch(caches[bucket][0])
                 target_batch, target_batch_mask = self._create_target_batch(caches[bucket][1], self.dst2idx)
+                create_batch_time = time.time() - tmp_time
+                logging.info("read utt time: {0}\n"
+                             "select bucket time: {1}\n"
+                             "cache append time: {2}\n"
+                             "random cache append time: {3}\n"
+                             "create batch time: {4}".format(read_utt_time, select_bucket_time,
+                                                             cache_append_time, random_append_time, create_batch_time))
+                read_utt_time = select_bucket_time = cache_append_time = random_append_time = 0
                 # yield (feat_batch, feat_batch_mask, target_batch, target_batch_mask)
                 yield (feat_batch, target_batch, len(caches[bucket][0]))
                 caches[bucket] = [[], [], 0, 0]
