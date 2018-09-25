@@ -21,10 +21,10 @@ import sys
 import pickle
 
 import tensorflow as tf
-import src.io.ark as zark
-import src.io.fea as zfea
-import src.io.feacfg as zfeacfg
-import src.io.file as zfile
+import io.ark as zark
+import io.fea as zfea
+import io.feacfg as zfeacfg
+import io.file as zfile
 import numpy as np
 
 PARAM = None
@@ -39,7 +39,7 @@ def _bytes_feature(value):
 
 
 def Convert():
-    print PARAM
+    print(PARAM)
 
     # Read Ark File
     fealst = zark.ArkReader(PARAM.feascp)
@@ -88,7 +88,7 @@ def Convert():
                 fea_dim = cols
 
             if fea_dim != cols:
-                print 'Error Fea_dim ' + str(fea_dim) + 'with ' + str(cols)
+                print('Error Fea_dim ' + str(fea_dim) + 'with ' + str(cols))
                 file_count_err += 1
                 continue
 
@@ -102,7 +102,7 @@ def Convert():
                 ali_shape = ali.shape
 
             if ali_shape[0] != rows:
-                print 'Error Fea_num ' + str(rows) + 'with Ali_num ' + str(ali_shape[0])
+                print('Error Fea_num ' + str(rows) + 'with Ali_num ' + str(ali_shape[0]))
                 file_count_err += 1
                 continue
 
@@ -132,7 +132,7 @@ def Convert():
 
             # Report Progress
             if file_count % 1000 == 0:
-                print file_count
+                print(file_count)
                 # sys.stdout.write(' ' * 10 + '\r')
                 # sys.stdout.flush()
                 # sys.stdout.write(str(file_count) + '\r')
@@ -148,7 +148,7 @@ def Convert():
 
     tf_file_writer.close()
     scp_file_write.close()
-    print 'convert ' + str(file_count) + ' utterances, wrong alignment utt: ' + str(file_count_err)
+    print('convert ' + str(file_count) + ' utterances, wrong alignment utt: ' + str(file_count_err))
 
     # Calculate State Num and Cmvn
     state_num += 1

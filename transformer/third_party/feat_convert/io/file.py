@@ -37,5 +37,5 @@ def check_model_dir(flags, cfg_file):
         z_mkdir(flags.get_model_dir())
         os.system("cp %s %s" % (cfg_file, flags.get_model_dir()))
     elif os.listdir(flags.get_model_dir()):
-        print "Please backup your existed model directory first! "
+        print("Please backup your existed model directory first! ")
         exit()
