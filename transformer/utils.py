@@ -180,6 +180,7 @@ class DataReader(object):
                              "random cache append time: {3}\n"
                              "create batch time: {4}".format(read_utt_time, select_bucket_time,
                                                              cache_append_time, random_append_time, create_batch_time))
+                read_utt_time = select_bucket_time = cache_append_time = random_append_time = 0
                 # yield (feat_batch, feat_batch_mask, target_batch, target_batch_mask)
                 yield (feat_batch, target_batch, len(caches[bucket][0]))
                 caches[bucket] = [[], [], 0, 0]

@@ -37,10 +37,10 @@ class FeaCfg(object):
 
     def printcfg(self):
 
-        print 'Fea_Dim : ' + str(self.fea_dim)
-        print 'State_Num : ' + str(self.state_num)
-        print 'Utt Num : ' + str(self.utt_num)
-        print 'Fea_Num_Total : ' + str(self.fea_num_total)
+        print('Fea_Dim : ' + str(self.fea_dim))
+        print('State_Num : ' + str(self.state_num))
+        print('Utt Num : ' + str(self.utt_num))
+        print('Fea_Num_Total : ' + str(self.fea_num_total))
 
         sys.stdout.write('Fea_Mean :')
         for x in self.fea_mean:
