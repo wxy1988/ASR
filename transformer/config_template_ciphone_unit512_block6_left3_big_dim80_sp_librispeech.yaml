@@ -19,10 +19,13 @@ bucket_max: 10000
 bucket_step: 10
 is_attention_smoothing: False
 train:
-    num_gpus: 4
-    tokens_per_batch: 10000
+    num_gpus: 2
+    tokens_per_batch: 5000
     src_path: '/data/nfs_ssd/xuyang1/transformer-iacas/exp/librispeech/fbank_cleaned/feats.scp'
     dst_path: '/data/nfs_ssd/xuyang1/transformer-iacas/exp/librispeech/fbank_cleaned/text_char'
+    tfrecord_pattern: '/data/nfs_ssd/xuyang1/transformer-iacas/exp/librispeech/fbank_cleaned/tfrecord/tf/*.tf'
+    read_threads: 8
+    batchsize_read: 128
     max_length: 2000
     num_epochs: 20
     num_steps: 300000

@@ -9,7 +9,7 @@ from tempfile import mkstemp
 import numpy as np
 import tensorflow as tf
 import tensorflow.contrib.framework as tff
-import third_party.feat_convert.io.ark as zark
+import third_party.feat_convert.kaldi_io.ark as zark
 from third_party.tensor2tensor import common_layers, common_attention
 import re
 import time
@@ -225,6 +225,125 @@ class DataReader(object):
             self._tmps.remove(src_shuf_path)
             self._tmps.remove(dst_shuf_path)
 
+    def get_training_tfrecord_batches(self, sess, shuffle = True, use_bucket = True):
+        """
+        Generate batches from tfrecords according to bucket setting.
+        """
+
+        def parse_function_tfrecord_var(example_proto):
+            keys_to_features = {'feat_shape': tf.FixedLenFeature(shape=(1,2), dtype=tf.int64),
+                                'feat': tf.VarLenFeature(tf.float32),
+                                'label_shape': tf.FixedLenFeature(shape=(1,), dtype=tf.int64),
+                                'label': tf.VarLenFeature(tf.int64)}
+            
+            parsed_feature = tf.parse_single_example(example_proto, keys_to_features)
+            return parsed_feature['feat_shape'], parsed_feature['feat'], parsed_feature['label_shape'], parsed_feature['label']
+
+        # buckets = [(i, i) for i in range(5, 1000000, 3)]
+        buckets = [(i, i) for i in range(self._config.bucket_min, self._config.bucket_max, self._config.bucket_step)]
+
+        def select_bucket(sl, dl):
+            for l1, l2 in buckets:
+                if sl < l1 and dl < l2:
+                    return l1, l2
+            raise Exception("The sequence is too long: ({}, {})".format(sl, dl))
+
+        # Shuffle the training files.
+        src_path = self._config.train.tfrecord_pattern
+        #dst_path = self._config.train.dst_path
+        max_length = self._config.train.max_length
+
+        data_files = tf.gfile.Glob(src_path)
+        logging.info("Find {} tfrecords files".format(len(data_files)))
+        dataset = tf.data.TFRecordDataset(data_files, buffer_size = 100000, num_parallel_reads = self._config.train.read_threads)
+        dataset = dataset.map(parse_function_tfrecord_var, num_parallel_calls = self._config.train.read_threads)
+        
+        if shuffle:
+            logging.info('Shuffle files %s.' % (src_path))
+            dataset = dataset.shuffle(buffer_size = 10000)
+        else:
+            logging.info('no shuffle for files %s' %(src_path))
+        
+        dataset = dataset.batch(self._config.train.batchsize_read)  # this batchsize_read is only for tf reading
+        iterator = dataset.make_one_shot_iterator()
+
+        if use_bucket is True:
+            caches = {}
+            for bucket in buckets:
+                caches[bucket] = [[], [], 0, 0]  # src sentences, dst sentences, src tokens, dst tokens
+
+            num_random_caches = 5000
+            num_cache_max_length = 600
+            num_cache_min_length = 100
+            num_cache_target_min_length = 4
+        
+        count = 0
+
+        while True:
+            try:
+                feat_shape, feat, label_shape, label = iterator.get_next()
+                feat_shape, feat, label_shape, label = sess.run([feat_shape, feat, label_shape, label])
+                if len(feat_shape.shape) != 3 or len(label_shape.shape) != 2:
+                    logging.warn("feat_shape or label_shape is wrong! " 
+                    "The feat_shape is {0} and the label_shape is {1}".format(feat_shape.shape, label_shape.shape))
+                    continue
+                feat = tf.sparse_tensor_to_dense(feat)
+                label = tf.sparse_tensor_to_dense(label)
+                real_batchsize = feat_shape.shape[0]
+                feat = tf.reshape(feat, [real_batchsize, -1, feat_shape[-1][-1][-1]])
+                # labels do not need to reshape but need to be truncated
+                feat_array, label_array = sess.run([feat, label])
+                if use_bucket is False:
+                    count += feat_array.shape[0]
+                    yield feat_array, label_array, feat_array.shape[0]
+                    logging.info("Current count of samples is {}".format(count))
+                else:
+                    for i in range(real_batchsize):
+                        input_len = feat_shape[i][0][0]
+                        true_feat = feat_array[i][:input_len]
+                        target_len = label_shape[i][0]
+                        true_label = label_array[i][:target_len]
+                        if input_len > max_length or target_len > max_length:
+                            logging.warn("input_len={0}, target_len={1}".format(input_len, target_len))
+                            continue
+                        count += 1
+                        if target_len == 0:
+                            continue
+                        
+                        bucket = select_bucket(input_len, target_len)
+                        caches[bucket][0].append(true_feat)
+                        caches[bucket][1].append(true_label)
+                        caches[bucket][2] += input_len
+                        caches[bucket][3] += target_len
+
+                        if max(caches[bucket][2], caches[bucket][3]) >= self._config.train.tokens_per_batch:
+                            feat_batch, feat_batch_mask = self._create_feat_batch(caches[bucket][0])
+                            target_batch, target_batch_mask = self._create_target_batch_idx(caches[bucket][1], self.dst2idx)
+                            yield (feat_batch, target_batch, len(caches[bucket][0]))
+                            logging.info("Current count of samples is {}".format(count))
+                            caches[bucket] = [[], [], 0, 0]
+                        
+            except tf.errors.OutOfRangeError:
+                logging.info("All data done!")
+                break
+            
+        if use_bucket is True:
+            # tackle with the left samples
+            left_caches = [[], [], 0, 0]
+            for bucket in buckets:
+                if len(caches[bucket][0]) > 0:
+                    left_caches[0].append(caches[bucket][0])
+                    left_caches[1].append(caches[bucket][1])
+                    left_caches[2] += caches[bucket][2]
+                    left_caches[3] += caches[bucket][3]
+                    count += 1
+                    if max(left_caches[2], left_caches[3]) >= self._config.train.tokens_per_batch or bucket == buckets[-1]:
+                        feat_batch, feat_batch_mask = self._create_feat_batch(left_caches[0])
+                        target_batch, target_batch_mask = self._create_target_batch_idx(left_caches[1], self.dst2idx)
+                        yield (feat_batch, target_batch, len(left_caches[0]))
+                        logging.info("Current count of samples is {}".format(count))
+                        left_caches = [[], [], 0, 0]
+
     def _create_feat_batch(self, indices):
         # Pad to the same length.
         # indices的数据是[[feat_len1, feat_dim], [feat_len2, feat_dim], ...]
@@ -265,6 +384,19 @@ class DataReader(object):
 
         # Pad to the same length.
         batch_size = len(sents)
+        maxlen = max([len(s) for s in indices])
+        target_batch = np.zeros([batch_size, maxlen], np.int32)
+        target_batch.fill(PAD_INDEX)
+        target_batch_mask = np.ones([batch_size, maxlen], dtype=np.int32)
+        for i, x in enumerate(indices):
+            target_batch[i, :len(x)] = x
+            target_batch_mask[i, :len(x)] = 0
+        return target_batch, target_batch_mask
+    
+    def _create_target_batch_idx(self, indices, phone2idx):
+        # sents的数据是[word1_idx word2_idx ... wordn_idx]
+        # Pad to the same length.
+        batch_size = len(indices)
         maxlen = max([len(s) for s in indices])
         target_batch = np.zeros([batch_size, maxlen], np.int32)
         target_batch.fill(PAD_INDEX)
