@@ -255,7 +255,14 @@ class DataReader(object):
 
         data_files = tf.gfile.Glob(src_path)
         logging.info("Find {} tfrecords files".format(len(data_files)))
-        dataset = tf.data.TFRecordDataset(data_files, buffer_size = 100000, num_parallel_reads = self._config.train.read_threads)
+        # we try to use placeholder to solve the bug "tensorflow.GraphDef was modified concurrently during serialization"
+        use_placeholder = True
+        if use_placeholder is True:
+            data_holder = tf.placeholder(tf.string, shape = [None])
+            dataset = tf.data.TFRecordDataset(data_holder, num_parallel_reads = self._config.train.read_threads)
+        else:
+            dataset = tf.data.TFRecordDataset(data_files, num_parallel_reads = self._config.train.read_threads)
+        
         dataset = dataset.map(parse_function_tfrecord_var, num_parallel_calls = self._config.train.read_threads)
         
         if shuffle:
@@ -265,7 +272,12 @@ class DataReader(object):
             logging.info('no shuffle for files %s' %(src_path))
         
         dataset = dataset.batch(self._config.train.batchsize_read)  # this batchsize_read is only for tf reading
-        iterator = dataset.make_one_shot_iterator()
+
+        if use_placeholder is True:
+            iterator = dataset.make_initializable_iterator()
+            sess.run(iterator.initializer, feed_dict = {data_holder : data_files})
+        else:
+            iterator = dataset.make_one_shot_iterator()
 
         if use_bucket is True:
             caches = {}
@@ -278,11 +290,10 @@ class DataReader(object):
             num_cache_target_min_length = 4
         
         count = 0
-
+        feat_shape_tensor, feat_tensor, label_shape_tensor, label_tensor = iterator.get_next()
         while True:
             try:
-                feat_shape, feat, label_shape, label = iterator.get_next()
-                feat_shape, feat, label_shape, label = sess.run([feat_shape, feat, label_shape, label])
+                feat_shape, feat, label_shape, label = sess.run([feat_shape_tensor, feat_tensor, label_shape_tensor, label_tensor])
                 if len(feat_shape.shape) != 3 or len(label_shape.shape) != 2:
                     logging.warn("feat_shape or label_shape is wrong! " 
                     "The feat_shape is {0} and the label_shape is {1}".format(feat_shape.shape, label_shape.shape))

@@ -73,15 +73,17 @@ def train(config):
 
         step = 0
         for epoch in range(1, config.train.num_epochs+1):
-            for batch in data_reader.get_training_tfrecord_batches(sess):
+            pre_train_time = time.time()
+            for batch in data_reader.get_training_tfrecord_batches(sess, use_bucket=True):
 
                 # Train normal instances.
                 start_time = time.time()
                 step, lr, loss = train_one_step(batch)
                 logger.info(
-                            'epoch: {0}\tstep: {1}\tlr: {2:.6f}\tloss: {3:.4f}\ttime: {4:.4f}\tbatch_size: {5}'.
-                            format(epoch, step, lr, loss, time.time() - start_time, batch[2]))
+                            'epoch: {0}\tstep: {1}\tlr: {2:.6f}\tloss: {3:.4f}\ttrain_time: {4:.4f}\tpre_train_time: {5:.5f}\tbatch_size: {6}'.
+                            format(epoch, step, lr, loss, time.time() - start_time, start_time - pre_train_time, batch[2]))
                 # Save model
+                pre_train_time = time.time()
                 if config.train.save_freq > 0 and step % config.train.save_freq == 0:
                     maybe_save_model()
                 
@@ -113,7 +115,7 @@ if __name__ == '__main__':
     import os
 
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-    os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
 
     parser = ArgumentParser()
     parser.add_argument('-c', '--config', dest='config')
