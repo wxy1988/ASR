@@ -5,16 +5,48 @@ from argparse import ArgumentParser
 import yaml
 
 from evaluate import Evaluator
-from model import *
+from model_tfrecord import *
 from utils import DataReader, AttrDict, available_variables, expand_feed_dict
 
+def parse_function_var(example_proto):
+    keys_to_features = {'feat_shape': tf.FixedLenFeature(shape=(1,2), dtype=tf.int64),
+                        'feat': tf.VarLenFeature(tf.float32),
+                        'label_shape': tf.FixedLenFeature(shape=(1,), dtype=tf.int64),
+                        'label': tf.VarLenFeature(tf.int64)}
+    
+    parsed_feature = tf.parse_single_example(example_proto, keys_to_features)
+    return parsed_feature['feat_shape'], parsed_feature['feat'], parsed_feature['label_shape'], parsed_feature['label']
 
 def train(config):
     logger = logging.getLogger('')
 
     """Train a model with a config file."""
-    data_reader = DataReader(config=config)
-    model = eval(config.model)(config=config, num_gpus=config.train.num_gpus)
+    train_graph = tf.Graph()
+    print(config.train.tfrecord_pattern)
+    data_files = tf.gfile.Glob(config.train.tfrecord_pattern)
+    logging.info("Find {} tfrecords files".format(len(data_files)))
+    with train_graph.as_default():
+        data_holder = tf.placeholder(tf.string, shape = [None])
+        dataset = tf.data.TFRecordDataset(data_holder, num_parallel_reads = config.train.read_threads)
+        dataset = dataset.map(parse_function_var, num_parallel_calls = config.train.read_threads)
+        shuffle_data = True
+        if shuffle_data is True:
+            dataset = dataset.shuffle(buffer_size = 10000)
+        dataset = dataset.repeat(config.train.num_epochs).batch(config.train.batchsize_read)
+
+        iterator = dataset.make_initializable_iterator()
+
+        feat_shape_tensor, feat_tensor, label_shape_tensor, label_tensor = iterator.get_next()
+
+        feat_tensor = tf.sparse_tensor_to_dense(feat_tensor)
+        label_tensor = tf.sparse_tensor_to_dense(label_tensor)
+        label_tensor = tf.cast(label_tensor, tf.int32)
+        feat_tensor_shapeop = tf.shape(feat_tensor)
+        feat_tensor = tf.reshape(feat_tensor, [feat_tensor_shapeop[0], -1, config.train.input_dim])
+        
+        
+
+    model = eval(config.model)(config=config, num_gpus=config.train.num_gpus, X=feat_tensor, Y=label_tensor, tensor_graph=train_graph)
     model.build_train_model(test=config.train.eval_on_dev)
 
     sess_config = tf.ConfigProto()
@@ -23,9 +55,12 @@ def train(config):
 
     summary_writer = tf.summary.FileWriter(config.model_dir, graph=model.graph)
 
+
     with tf.Session(config=sess_config, graph=model.graph) as sess:
         # Initialize all variables.
         sess.run(tf.global_variables_initializer())
+
+        sess.run(iterator.initializer, feed_dict = {data_holder : data_files})
         # Reload variables in disk.
         if tf.train.latest_checkpoint(config.model_dir):
             available_vars = available_variables(config.model_dir)
@@ -39,11 +74,9 @@ def train(config):
         else:
             logger.info('Nothing to be reload from disk.')
 
-        evaluator = Evaluator()
-        evaluator.init_from_existed(model, sess, data_reader)
 
         global dev_bleu, toleration
-        dev_bleu = evaluator.evaluate(**config.dev) if config.train.eval_on_dev else 0
+        dev_bleu = 0
         toleration = config.train.toleration
 
         def train_one_step(batch):
@@ -61,7 +94,7 @@ def train(config):
 
         def maybe_save_model():
             global dev_bleu, toleration
-            new_dev_bleu = evaluator.evaluate(**config.dev) if config.train.eval_on_dev else dev_bleu + 1
+            new_dev_bleu = dev_bleu + 1
             if new_dev_bleu >= dev_bleu:
                 mp = config.model_dir + '/model_step_{}'.format(step)
                 model.saver.save(sess, mp)
@@ -72,16 +105,19 @@ def train(config):
                 toleration -= 1
 
         step = 0
-        for epoch in range(1, config.train.num_epochs+1):
-            pre_train_time = time.time()
-            for batch in data_reader.get_training_tfrecord_batches(sess, use_bucket=True):
-
+        while True:
+            try:
+                pre_train_time = time.time()
+                feat_shape, feat, label_shape, label = sess.run([feat_shape_tensor, feat_tensor, label_shape_tensor, label_tensor])
+                batch = (feat, label, feat.shape[0])
+                #logging.info("This batch has {} samples".format(feat.shape[0]))
+                #logging.info("The feat shape is {}".format(feat.shape))
                 # Train normal instances.
                 start_time = time.time()
                 step, lr, loss = train_one_step(batch)
                 logger.info(
-                            'epoch: {0}\tstep: {1}\tlr: {2:.6f}\tloss: {3:.4f}\ttrain_time: {4:.4f}\tpre_train_time: {5:.5f}\tbatch_size: {6}'.
-                            format(epoch, step, lr, loss, time.time() - start_time, start_time - pre_train_time, batch[2]))
+                            'step: {0}\tlr: {1:.6f}\tloss: {2:.4f}\ttrain_time: {3:.4f}\tpre_train_time: {4:.5f}\tbatch_size: {5}'.
+                            format(step, lr, loss, time.time() - start_time, start_time - pre_train_time, batch[2]))
                 # Save model
                 pre_train_time = time.time()
                 if config.train.save_freq > 0 and step % config.train.save_freq == 0:
@@ -90,13 +126,15 @@ def train(config):
                 if config.train.num_steps and step >= config.train.num_steps:
                     break
 
-            # Save model per epoch if config.train.save_freq is less or equal than zero
-            if config.train.save_freq <= 0:
-                maybe_save_model()
+                # Save model per epoch if config.train.save_freq is less or equal than zero
+                if config.train.save_freq <= 0:
+                    maybe_save_model()
 
-            # Early stop
-            if toleration <= 0:
-                break
+                # Early stop
+                if toleration <= 0:
+                    break
+            except tf.errors.OutOfRangeError:
+                logging.info("All data done!")
         logger.info("Finish training.")
 
 def config_logging(log_file):

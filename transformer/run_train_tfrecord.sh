@@ -1,0 +1,1 @@
+python train_tfrecord.py -c config_template_ciphone_unit512_block6_left3_big_dim80_sp_librispeech.yaml

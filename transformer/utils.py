@@ -256,6 +256,7 @@ class DataReader(object):
         data_files = tf.gfile.Glob(src_path)
         logging.info("Find {} tfrecords files".format(len(data_files)))
         # we try to use placeholder to solve the bug "tensorflow.GraphDef was modified concurrently during serialization"
+
         use_placeholder = True
         if use_placeholder is True:
             data_holder = tf.placeholder(tf.string, shape = [None])
